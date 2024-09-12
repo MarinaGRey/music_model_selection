@@ -1,0 +1,1621 @@
+---
+title: "Homework 2"
+subtitle: "Statistical Learning - UC3M"
+author: "Marina Gómez Rey"
+date: '12-2022'
+output:
+  html_document: 
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: no
+    toc: yes
+    toc_depth: 1
+  pdf_document:
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: yes
+    toc: yes
+    toc_depth: 1
+editor_options:
+  chunk_output_type: console
+---
+
+```{r global_options, include=T, echo = F}
+knitr::opts_chunk$set(echo = T, warning = FALSE, message = FALSE)
+```
+
+Let's clean our workspace before beginning.
+
+```{r}
+rm(list=ls())
+```
+
+**Include the Dataset**
+
+First of all, all the necessary libraries are going to be added.
+
+```{r}
+#Cleaning
+library(tidyr)
+library(dplyr)
+library(mice)
+library(tidyverse)
+library(skimr)
+library(forcats)
+library(VIM)
+
+#Graphs
+library(ggplot2)
+library(GGally)
+
+#LDA and QDA
+library(MASS)
+library(pROC)
+library(caret)
+
+# Decision trees
+library(rpart)
+library(rpart.plot)
+
+#Random Forest
+library(randomForest)
+
+#Gradient boosting
+library(gbm)
+library(xgboost)
+
+#KNN
+library(class)
+
+#Logistic regression
+library(leaflet)
+library(olsrr)
+library(mltools)
+library(jtools)
+library(elasticnet)
+library(glmnet)
+```
+
+Now, the dataset is included. As there may be some blank spaces in the dataset that
+are not considered as Nas, it is important to include the na.strings part so the
+cleaning can then be done in a better way.
+
+```{r}
+data <- read.csv("spotify.csv", header=T, na.strings=c("","NA"), sep = "")
+```
+
+# Introduction
+
+**Motivation**
+
+The dataset was extracted from kaggle, and it can be accessed through the following link:
+https://www.kaggle.com/datasets/yamaerenay/spotify-dataset-19212020-600k-tracks?select=tracks.csv - Although the original dataset has 600,000 values, I decided to reduce it to 120,000 approximately as the tools are very time consuming and rendering the file could take more than three days. I did the separation with the data partition taking into account the values of popularity, and I observed that the probabilities almost did not change, so I left it this way.
+
+Nowadays, music is more and more listened to online, rather than in physical media such as CDs. One of the most used platforms to listen to music is Spotify, which has a catalog of more than 35 million songs from all around the world. That is why using the information about some characteristics of the songs, we can predict if a song is going to be popular or not, and which are the aspects that make a song to be considered more popular. The dataset has approximately 120000 values, which is a very large value from where we can draw many conclusions.
+
+**The dataset**
+
+Let's display the head of the dataset to see what variables it has.
+
+```{r}
+head(data)
+```
+
+The dataset has the following variables:
+
+ - duration_ms <- which is the length of the song in miliseconds.
+ - explicit <- 0 for no and 1 for yes.
+ - release_date <- which has the date including the day and month if known.
+ - popularity <- from 0 to 100, tells how much people like that song.
+
+The rest of the variable's information has been drawn from the Spotify's API documentation :
+
+ - acousticness : A confidence measure from 0.0 to 1.0 of whether the track is acoustic. 1.0 represents high confidence the track is acoustic.
+ - danceability : Danceability describes how suitable a track is for dancing based on a combination of musical elements including tempo, rhythm stability, beat strength, and overall regularity. A value of 0.0 is least danceable and 1.0 is most danceable.
+ - duration_ms : The duration of the track in milliseconds.
+energy : Energy is a measure from 0.0 to 1.0 and represents a perceptual measure of intensity and activity. Typically, energetic tracks feel fast, loud, and noisy. For example, death metal has high energy, while a Bach prelude scores low on the scale. Perceptual features contributing to this attribute include dynamic range, perceived loudness, timbre, onset rate, and general entropy.
+ - instrumentalness : Predicts whether a track contains no vocals. “Ooh” and “aah” sounds are treated as instrumental in this context. Rap or spoken word tracks are clearly “vocal”. The closer the instrumentalness value is to 1.0, the greater likelihood the track contains no vocal content. Values above 0.5 are intended to represent instrumental tracks, but confidence is higher as the value approaches 1.0.
+ - key : The key the track is in. Integers map to pitches using standard Pitch Class notation . E.g. 0 = C, 1 = C♯/D♭, 2 = D, and so on.
+ - liveness : Detects the presence of an audience in the recording. Higher liveness values represent an increased probability that the track was performed live. A value above 0.8 provides strong likelihood that the track is live.
+ - loudness : The overall loudness of a track in decibels (dB). Loudness values are averaged across the entire track and are useful for comparing relative loudness of tracks. Loudness is the quality of a sound that is the primary psychological correlate of physical strength (amplitude). Values typical range between -60 and 0 db.
+ - mode : Mode indicates the modality (major or minor) of a track, the type of scale from which its melodic content is derived. Major is represented by 1 and minor is 0.
+ - speechiness : Speechiness detects the presence of spoken words in a track. The more exclusively speech-like the recording (e.g. talk show, audio book, poetry), the closer to 1.0 the attribute value. Values above 0.66 describe tracks that are probably made entirely of spoken words. Values between 0.33 and 0.66 describe tracks that may contain both music and speech, either in sections or layered, including such cases as rap music. Values below 0.33 most likely represent music and other non-speech-like tracks.
+ - tempo : The overall estimated tempo of a track in beats per minute (BPM). In musical terminology, tempo is the speed or pace of a given piece and derives directly from the average beat duration.
+ - time_signature : An estimated overall time signature of a track. The time signature (meter) is a notational convention to specify how many beats are in each bar (or measure).
+ - valence : A measure from 0.0 to 1.0 describing the musical positiveness conveyed by a track. Tracks with high valence sound more positive (e.g. happy, cheerful, euphoric), while tracks with low valence sound more negative (e.g. sad, depressed, angry).
+
+```{r}
+str(data)
+```
+
+At first sight, we already know that some type's must be changed and some variables do not seem very useful.
+
+# Data preprocessing
+
+**Check for empty values**
+
+If they are less than a 5% in a variable, they can be erased without any big consequence 
+but if they are more, other actions have to be taken.
+
+We are going to check graphically where the missing values are located.
+
+```{r}
+aggr(data, numbers = TRUE, sortVars = TRUE, labels = names(data),
+     cex.axis = .5, gap = 1, ylab= c('Missing data','Pattern'))
+```
+
+There are 71 empty names. As they represent a low percentage, they can be erased directly.
+
+```{r}
+data <- data[-which(is.na(data$name)),]
+```
+
+**Erase useless columns**
+
+There are some useless columns that can be erased, such as the ID of the songs, 
+and the artists. Also, as the techniques we are going to use are based on numerical
+values, the title and the artists are not necessary.
+
+```{r}
+data[1] <- NULL
+data[1] <- NULL
+data[4] <- NULL
+data[4] <- NULL
+```
+
+**Duplicates**
+
+```{r}
+sum(duplicated(data))
+```
+
+There are 82 duplicates so they have to be erased.
+
+```{r}
+data <- data[!duplicated(data), ]
+```
+
+**Check variables**
+
+The numerical values have to be checked, so that they are treated as numbers.
+For that reason, with the str function we applied before we can see the types of each variable and change them if necessary.
+
+```{r}
+data$popularity = as.numeric(data$popularity)
+data$duration_ms = as.numeric(data$duration_ms)
+data$explicit = as.numeric(data$explicit)
+# For the date I only want the year so I only take the first four characters
+data$release_date = as.numeric(substr(data$release_date, 1, 4))
+data$key = as.numeric(data$key)
+data$mode = as.numeric(data$mode)
+data$time_signature = as.numeric(data$time_signature)
+```
+
+**Outliers**
+
+As a first approach to outliers, which are extreme values, far from the rest, first a boxplot is computed to see visually if they seem to exist.
+
+```{r}
+boxplot(data)
+```
+
+The graph shows clearly that there exist some outliers, but to see how many, 
+let's apply a method that gives us how many outliers we have.
+
+```{r}
+outliers <- data
+
+for (i in c(1:16)){
+  value = outliers[,i][outliers[,i] %in% boxplot.stats(outliers[,i])$out]
+  outliers[,i][outliers[,i] %in% value] = NA}
+
+str(value)
+```
+
+This method shows that there is a huge amount of outliers so let's erase them.
+
+```{r}
+data <- na.omit(outliers)
+```
+
+After erasing the outliers, the following two variables do not make sense as they repeat their values so they are erased.
+
+```{r}
+data[3] <- NULL
+data[15] <- NULL
+```
+
+# Visualization
+
+**Popularity**
+
+First, let's take a look on the variable we are going to study.
+
+```{r}
+ggplot(data) +
+  aes(x = popularity) +
+  geom_density(adjust = 1L, fill = "#4B9FB2") +
+  labs(title = "Popularity") +
+  theme_minimal()
+```
+
+The density graph of the popularity shows that songs with a high popularity are difficult
+to find, low popularities are more common but most of them are in the middle, in values
+between 20 and 40. Once it reaches this value, it decreases notably.
+
+**Popularity and release_date**
+
+```{r}
+ggplot(data) +
+  aes(x = popularity) +
+  geom_histogram(bins = 30L, fill = "#B22222") +
+  labs(title = "Popularity and release date") +
+  theme_minimal() +
+  facet_wrap(vars(release_date))
+```
+
+As it could be expected, very old songs have very low popularities (they are less and
+their popularity values are also very low). However, as the years increase, these values get better.
+The values are specially good on 2020, maybe because of the pandemics. Also, it can be seen that 
+from 1985, the distributions are similar to the one obtained in all the values of popularity, and they seem
+to get a little bit better from 2008.
+
+**Energy, loudness and popularity**
+
+```{r}
+ggplot(data) +
+  aes(x = energy, y = loudness, colour = popularity) +
+  geom_point(shape = "circle", size = 1.5) +
+  geom_smooth(span = 0.75) +
+  labs(title = "Energy, loudness and popularity") +
+  scale_color_gradient() +
+  theme_minimal()
+```
+
+A positive linear relation between energy and loudness is very clear, what makes sense as
+a more energetic song should be louder. However, when taking into account their relation
+with the popularity, they are not related as the gradient is not regular and different shadings of blue 
+are mixed constantly, so popularity does not seem to depend on these variables. However, it is true that there seems to be better results on popularity when the energy and loudness are high, as their points are brighter, whereas the tones are darker close to point (0,0).
+
+**Valence, danceability, key and popularity**
+
+```{r}
+ggplot(data) +
+  aes(x = valence, y = danceability, colour = popularity) +
+  geom_point(shape = "circle", size = 1.5) +
+  geom_smooth(span = 0.75) +
+  scale_color_viridis_c(option = "plasma", direction = 1) +
+  labs(title = "Valence, danceability, key and popularity") +
+  theme_minimal() +
+  facet_wrap(vars(key))
+```
+
+This graph shows again a clear relation between danceability and valence, as valence represents
+the musical positiveness, it makes sense that a higher value leads to more danceability.
+In this case, a better value of popularity is close to a yellow tone. This suggests that there may be
+a slight relation between key and popularity, as it seems that 6, 8 and 11 have more presence 
+of this colors, but it is a very slight relation. However, when comparing valence 
+to popularity there does not seem to be a relationship because the colors are very irregular. On the contrary, it seems that higher values of danceability provide more popularity, as there are brighter tones on top than on bottom of the graphs (although it is not a very strong relationship).
+
+**Duration, liveness, mode and popularity**
+
+```{r}
+ggplot(data) +
+  aes(
+    x = duration_ms,
+    y = liveness,
+    colour = popularity,
+    size = mode
+  ) +
+  geom_point(shape = "circle") +
+  geom_smooth(span = 0.75) +
+  scale_color_gradient(low = "#95F5FD", high = "#9905B5") +
+  labs(title = "Duration, liveness, mode and popularity") +
+  theme_minimal()
+```
+
+I thought that maybe duration and liveness could be correlated as sometimes at concerts durations vary.
+However, it has been demonstrated through the graph that there is no correlation at all.
+In general, the four variables included in this graph do not seem correlated, as there are big
+and small points mixed and the colors are also mixed up. It does seem that there are some lighter 
+colours at low durations, and darker on the middle of the graph but this observation does not seem very significant.
+
+# Separating the training and test datasets
+
+An 80% of the values of the dataset should belong to the training set, whilst the 
+other 20% to the test set. This separation is crucial to be done in the beginning as everything except the predictions should be done with the training set. We add the seed to get always the same results.
+
+About set seed, it did not work well unless it was added in more chunks so it will appear through the whole document. 
+
+```{r}
+set.seed(123)
+
+spl = createDataPartition(data$popularity, p = 0.8, list = FALSE)  
+
+dataTrain = data[spl,]
+dataTest = data[-spl,]
+```
+
+**Analysis of the created sets**
+
+Let's analyse the groups to see that they are balanced. 
+
+As a first approach, some boxplots of the variable we are going to study are created, and then the summaries of both are computed.
+
+```{r}
+boxplot(dataTrain$popularity)
+boxplot(dataTest$popularity)
+summary(dataTrain)
+summary(dataTest)
+```
+
+It can be seen that both sets are very similar in all quantiles, so they are very well balanced.
+
+# Study correlation
+
+```{r}
+ggcorr(dataTrain, label = T)
+```
+
+The correlations should be low, as in other way, variables would explain the same concepts, which would make useless some columns. In this specific case, we can see that correlations are very low, which is beneficial for us. The only two variables that have more correlation are loudness and energy, which makes sense as a louder song should be more energetic. Also, acousticness and energy have strong negative correlation. These are relations we found whith the graphs.
+
+**Correlation with the popularity index**
+
+Previously we saw how correlations between all the variables were, but now, we must see how variables are related to the one we are going to study, which in this case is the popularity.
+
+```{r}
+corr_delay <- sort(cor(dataTrain)[1,], decreasing = T)
+corr=data.frame(corr_delay)
+ggplot(corr,aes(x = row.names(corr), y = corr_delay)) + 
+  geom_bar(stat = "identity", fill = "lightblue") + 
+  scale_x_discrete(limits= row.names(corr)) +
+  labs(x = "", y = "TotalDelay", title = "Correlations") + 
+  theme(plot.title = element_text(hjust = 0, size = rel(1.5)),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The previous graph shows that the most relevant factor is the date of the song. This can be because the dataset has songs from 1922, so more recent songs are much more popular and really make a difference. After that, loudness and energy are really important what suggests that more energetic and powerful songs are more popular. On the other hand, instrumentalness and acousticness do not seem correlated with the popularity. That means that the fact that a song has lyrics or electronic instruments is not relevant.
+
+# The classification approach
+
+Classification's aim is to find groups at our model and distinguish 
+data classes so then a model can predict the category of objects with unknown classes.
+
+We divide the popularity variable into three categories:
+
+ - Unpopular <- 0
+ - Nor popular nor unpopular <- 1
+ - Popular <- 2
+
+As the values of the popularity go from 0 to 100, the intervals must be approximately
+of 33 units distance. However, as there are many unpopular songs, the intervals will be created from 0 to 30, then from 31 to 60 and finally from 61 to 100. Then, the popularity column is erased.
+
+```{r}
+data$popularityClass = factor(ifelse(data$popularity <= 30, 0, 
+                                     ifelse(data$popularity <= 60, 1, 2)))
+
+data$popularity = NULL
+```
+
+Also, we have to change them in the training and test sets.
+
+```{r}
+dataTrain = data[spl,]
+dataTest = data[-spl,]
+```
+
+**Let's analyse the created groups**
+
+To see if the classes are balanced let's see how many elements are there in each
+group.
+
+```{r}
+table(dataTrain$popularityClass)
+```
+
+Clearly, the number of elements is really irregular, being really large for the 
+low popularity and lower for big and medium popularity.
+
+Let's see if they are balanced with respect to the variables. We are going to try it with the key variable.
+
+```{r}
+table(dataTrain$popularityClass, dataTrain$key)
+```
+
+They seem unbalanced, but we can see it clearer with a graph.
+
+```{r}
+ggplot(dataTrain, aes(x=popularityClass)) + geom_bar() + facet_wrap(.~key)
+```
+
+The graph shows clearly that they are not balanced, as values at not popular songs are much higher in all classes rather than popular songs.
+
+# Bayes classifiers
+
+## LDA
+
+LDA (Linear Discriminant Analysis) is used for linear boundaries between classifiers.
+
+```{r}
+set.seed(123)
+
+lda.model <- lda(popularityClass ~ ., data=dataTrain)
+probability = predict(lda.model, newdata=dataTest)$posterior
+head(probability)
+```
+
+With that previous code we have obtained the probabilities.
+
+To predict the labels for delay, we apply the Bayes rule of maximum probability.
+
+```{r}
+set.seed(123)
+
+prediction = predict(lda.model, newdata=dataTest)$class
+head(prediction)
+```
+
+**Performance**
+
+The confusion matrix: has predictions in rows and the true values in columns.
+
+```{r}
+confusionMatrix(as.factor(prediction), dataTest$popularityClass)$table
+
+confusionMatrix(prediction, dataTest$popularityClass)$overall[1]
+```
+
+The accuracy we get is 0.673, which is not a very good value. For that reason, this model may not be the best for our dataset. 
+
+## QDA
+
+Contrary to LDA, QDA (Quadratic Discriminant Analysis), does not assume linear relationships between classifiers.
+
+```{r}
+set.seed(123)
+
+qda.model <- qda(popularityClass ~ ., data=dataTrain)
+qda.model
+```
+
+**Performance**
+
+```{r}
+set.seed(123)
+
+prediction = predict(qda.model, newdata=dataTest)$class
+confusionMatrix(prediction, dataTest
+                $popularityClass)$table
+
+confusionMatrix(prediction, dataTest$popularityClass)$overall[1]
+```
+
+The accuracy of QDA is less than LDA, with a value of 0,642. This would suggest that classifiers follow a linear boundary so LDA has better results.
+
+## A benchmark model
+
+```{r}
+set.seed(123)
+
+table(dataTrain$popularityClass)
+obs <- max(table(dataTest$popularityClass))
+# Accuracy:
+obs/nrow(dataTest)
+```
+
+The accuracy it gives is 0,515 which is low. This can happen because we have three unbalanced groups. To get a better result we can reduce the number of groups to two and make them more balanced. However, it is true that this technique gives a less precise result as we only have two ways of classifying our variable: popular or unpopular.
+
+I am mixing the medium and high popularity classes, which were the ones that had lower values.
+
+```{r}
+data$popularityClass = factor(ifelse(data$popularityClass == 0, 0, 1))
+```
+
+The training and test sets must also be updated.
+
+```{r}
+dataTrain = data[spl,]
+dataTest = data[-spl,]
+```
+
+Let's see if the groups are more balanced.
+
+```{r}
+table(dataTrain$popularityClass)
+
+ggplot(dataTrain, aes(x=popularityClass)) + geom_bar() + facet_wrap(.~key)
+```
+
+This shows clearly that groups are much more balanced, so better results are expected after this change.
+
+Let's compute LDA (that seemed as the best option before) again to see if the accuracy is enhanced.
+
+```{r}
+set.seed(123)
+
+lda.model <- lda(popularityClass ~ ., data=dataTrain)
+prediction = predict(lda.model, newdata=dataTest)$class
+confusionMatrix(prediction, dataTest$popularityClass)$table
+confusionMatrix(prediction, dataTest$popularityClass)$overall[1]
+```
+
+As expected, our accuracy is now higher with a value of 0.709.
+
+# Modeling
+
+## Logistic regression
+
+Logistic regression is usually computed at a binary variable, and as we changed our popularity classification to a binary one before, we can leave it like that. 
+This technique is used to measure the relationships between the categorical variable we want to study and the rest of variables using probabilities that are obtained with logistic functions. 
+
+```{r}
+set.seed(123)
+
+logit.model <- glm(popularityClass ~ ., family=binomial(link='logit'), data=dataTrain)
+summary(logit.model)
+```
+
+Once we have the model (that gives us very significant information such as the estimations, standard error, z values, etc.) we can compute the probabilities and based on how good are them, the accuracy of the model.
+
+```{r}
+probability <- predict(logit.model,newdata=dataTest, type='response')
+head(probability)
+prediction <- as.factor(ifelse(probability > 0.5,"0","1"))
+head(prediction)
+confusionMatrix(dataTest$popularityClass, prediction)
+```
+
+The accuracy of this model is 0.288 which is a very low value, so this model should not be used to predict our variable.
+
+## ROC curve
+
+The ROC curve (Receiver Operating Characteristic curve) is a graph that shows the performance of a classification model at all classification thresholds. It uses both True Positive Rates and False Positive Rates. 
+
+Also, the ROC curve can be computed using different models, in this case we will use the LDA model, that gave us a higher accuracy previously.
+
+```{r}
+set.seed(123)
+
+model <- lda(popularityClass ~ ., data=dataTrain, prior = c(.9, .1))
+
+probability = predict(model, dataTest)$posterior
+
+roc.lda <- roc(dataTest$popularityClass, probability[,2])
+auc(roc.lda) 
+
+plot.roc(dataTest$popularityClass, probability[,2],col="darkblue", print.auc = TRUE,  auc.polygon=TRUE, grid=c(0.1, 0.2),
+         grid.col=c("green", "red"), max.auc.polygon=TRUE,
+         auc.polygon.col="lightblue", print.thres=TRUE)
+```
+
+The higher the area under the curve, the better the model. The area in this case is of 0,779, which is nice. Also,it gives a threshold of 0,128.
+
+## The benchmark
+
+The benchmark we computed before was created using lda, but it gave us a very low accuracy, so we are going to compute it again with a different technique.
+
+Firstly, we need to rename the factors to a name that R recognizes. We do that with the make.names function and apply them to the dataset and the training and test sets.
+
+```{r}
+names <- make.names(c(1, 2))
+
+data$popularityClass <- as.factor(gsub(1, names[2], data$popularityClass))
+data$popularityClass <- as.factor(gsub(0, names[1], data$popularityClass))
+
+dataTrain <- data[spl, ]
+dataTest <- data[-spl, ]
+```
+
+Now, the technique we are going to compute is the lrFit, but firstly, we compute the control variable with the number of repetitions which in this case is 5. 
+
+Then, we compute the model for lrFit, which stands for Logistic Regression, similar to generalized linear models (glm).
+
+```{r}
+set.seed(123)
+
+ctrl <- trainControl(method = "cv", number = 5,
+                     classProbs = TRUE, 
+                     verboseIter=T)
+
+lrFit <- train(popularityClass ~ ., 
+               method = "glmnet",
+               tuneGrid = expand.grid(alpha = seq(0, 1, 0.1), lambda = seq(0, .1, 0.02)),
+               metric = "Kappa",
+               data = dataTrain,
+               preProcess = c("center", "scale"),
+               trControl = ctrl)
+
+print(lrFit)
+```
+
+**Prediction**
+
+```{r}
+lrPred = predict(lrFit, dataTest)
+confusionMatrix(dataTest$popularityClass, lrPred)
+```
+
+After computing all the models with the different alphas and lambdas, the accuracy obtained for this model is 0.712, which has increased drastically in comparison with the other benchmark model.
+
+**Variable importance**
+
+With the model we obtained before we can obtain the variable importance.
+
+```{r}
+lr_imp <- varImp(lrFit, scale = F)
+plot(lr_imp, scales = list(y = list(cex = .95)))
+```
+
+The most important variable is the release date, that was the most correlated variable with the popularity in the graph we show in the beginning. After that, we can see that the importance of the rest of the variables decreases drastically. Regardless of that, the next most important variable is the loudness (which refers to dB of the song), which has a similar importance to acousticness (which represents if a song has electronic instruments). 
+
+On the other hand, the least important ones are tempo (speed of the song), key (tone of the song), instrumentalness (if it has vocals), liveness (if it was performed live), energy and speechiness (presence of spoken words).
+
+**ROC curve**
+
+As we saw before, the ROC curve can be computed using different methods, so we are going to compute it again using the model we obtained in the benchmark.
+
+```{r}
+set.seed(123)
+
+lrProb = predict(lrFit, dataTest, type="prob")
+
+plot.roc(dataTest$popularityClass, lrProb[,2],col="darkblue", print.auc = TRUE,  auc.polygon=TRUE, grid=c(0.1, 0.2),
+         grid.col=c("green", "red"), max.auc.polygon=TRUE,
+         auc.polygon.col="lightblue", print.thres=TRUE)
+```
+
+This model gives a similar area to the other one (0.78). However, the threshold gives a different value (as the benchmark was better for this one, I am going to conserve this one). Now, we are going to compute the accuracy with the new threshold the ROC has given.
+
+```{r}
+set.seed(123)
+
+threshold = 0.54
+lrProb = predict(lrFit, dataTest, type="prob")
+lrPred = rep(names[1], nrow(dataTest))
+lrPred[which(lrProb[,2] > threshold)] = names[2]
+confusionMatrix(factor(lrPred), dataTest$popularityClass)
+```
+
+It gives an accuracy of 0,717 which is a nice value, higher than the previous ones.
+
+## Cost sensitive
+
+When creating a model, it is also very important to take into account the cost of it, as if the accuracies are similar, it is always better to take a model that is less consuming. For that reason, we are also going to take into account if the models are very consuming or not.
+
+In this case, the taken values for the cost are between 0 and 500, so if the final value is close to 0 it would be much better than close to 500, which is very consuming.
+
+We are going to use the model used in the benchmark.
+
+```{r}
+set.seed(123)
+
+cost.i = matrix(NA, nrow = 100, ncol = 10)
+
+cost.unit <- c(0, 100, 500, 140)
+
+j <- 0
+for (threshold in seq(0.05,0.5,0.05)){
+  
+  j <- j + 1
+  cat(j)
+  for(i in 1:100){
+    
+    d <- createDataPartition(dataTrain$popularityClass, p = 0.8, list = FALSE)
+    
+    train <- data[d,]
+    test  <- data[-d,]  
+    
+    lrFit <- train(popularityClass ~ ., data=train, method = "glmnet",
+                   tuneGrid = data.frame(alpha = 0.3, lambda = 0), preProcess = c("center", "scale"),
+                   trControl = trainControl(method = "none", classProbs = TRUE))
+    
+    lrProb = predict(lrFit, test, type="prob")
+    lrPred = rep(names[1], nrow(test))
+    lrPred[which(lrProb[,2] > threshold)] = names[2]
+    
+    CM = confusionMatrix(factor(lrPred), test$popularityClass)$table
+    cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+    cost
+    
+    cost.i[i,j] <- cost
+    
+  }
+}
+```
+
+Now, let's see the cost of the model.
+
+```{r}
+set.seed(123)
+
+threshold = 0.54
+lrFit <- train(popularityClass ~ ., data=dataTrain, method = "glmnet",
+               tuneGrid = data.frame(alpha = 0.3, lambda = 0), preProcess = c("center", "scale"),
+               trControl = trainControl(method = "none", classProbs = TRUE))
+lrProb = predict(lrFit, dataTest, type="prob")
+lrPred = rep(names[1], nrow(dataTest))
+lrPred[which(lrProb[,2] > threshold)] = names[2]
+CM = confusionMatrix(factor(lrPred), dataTest$popularityClass)$table
+CM
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+The cost is of 136.19, which is not a veru high value compared to 500 but could be lower.
+
+# Machine learning tools
+
+Machine learning tools give us the possibility to predict the studied variable taking into account the values of the rest of the variables.
+
+## Decision trees
+
+With a decision tree we can see which variables are more decisive when looking for a popular song and we can predict if a song is going to be popular or not based on its paths.
+
+Decision trees require some hyperparameters: minsplit, which is the minimum number of observations on each iteration; maxdepth, which is the maximum depth the tree can go up to and cp, which is the complexity parameter and controls the tree size. The hyperparameters are established in the control and then added to the model.
+
+First, let's compute a first approach with the rpart function.
+
+```{r}
+set.seed(123)
+
+control = rpart.control(minsplit = 30, maxdepth = 10, cp=0.01)
+
+model = popularityClass ~.
+dtFit <- rpart(model, data=dataTrain, method = "class", control = control)
+summary(dtFit)
+```
+
+Now, let's compute it graphically.
+
+```{r}
+rpart.plot(dtFit, digits=3)
+```
+
+As we saw in the variable importance before, the most decisive variable is the date. As expected, if the song is very old its popularity is not going to be very high. In this case, it makes the distinction in the year 2000.
+
+As this tree was very small and did not have many information as has very few levels, a bigger tree with a higher maxdepth can be obtained to be more precise with the classification.
+
+```{r}
+set.seed(123)
+
+control = rpart.control(minsplit = 40, maxdepth = 12, cp=0.001)
+dtFit <- rpart(model, data=dataTrain, method = "class", control = control)
+
+rpart.plot(dtFit, digits = 3)
+```
+
+This tree gives us much more information. As before, a clear distinction is done with the release date, that has the same separation at year 2000, but also has another one in the second level that establishes that songs of years less than 1966 are not expected to be popular. After that, there is a distinction regarding the acousticness variable, that suggests that the fact that a song has a lot of presence of electronic resources is valuable when creating a successful song. 
+Then, after another ramification with the date, there is a branch regarding the loudness, which are the dB of the song. Next, there is another branch with the valence variable (how happy the song sounds), another with liveness (if the song was performed live), other with danceability, and other with acousticness.
+
+**Prediction**
+
+For the prediction, we are going to take into account both the accuracy and the cost to create the most optimal model.
+
+```{r}
+dtPred <- predict(dtFit, dataTest, type = "class")
+dtProb <- predict(dtFit, dataTest, type = "prob")
+
+threshold = 0.54
+dtPred = rep(names[1], nrow(dataTest))
+dtPred[which(dtProb[,2] > threshold)] = names[2]
+
+CM = confusionMatrix(factor(dtPred), dataTest$popularityClass)$table
+confusionMatrix(factor(dtPred), dataTest$popularityClass)
+
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+The accuracy this model gives is 0.724, and the cost is approximately 138.29, which are nice values but will be lately compared to see if they are optimum.
+
+**Caret package**
+
+Regardless of the previous results, we are going to compute again the decision tree but using this time the caret package.
+
+```{r}
+set.seed(123)
+
+caret.fit <- train(model, 
+                   data = dataTrain, 
+                   method = "rpart",
+                   control=rpart.control(minsplit = 40, maxdepth = 12),
+                   trControl = trainControl(method = "cv", number = 5),
+                   tuneLength=10)
+caret.fit
+
+rpart.plot(caret.fit$finalModel)
+```
+
+As it can be observed in the plot, it has more ramifications so it should be more precise than the one we obtained before. Regardless of this, the variables are very similar to the ones in the branches of the other model (as expected). It also gives a lot of importance to the release date, having various high branches dedicated to it. After that, we can also encounter the acousticness (higher than before), loudness, danceability and valence. 
+However, this tree introduces some variable that were not present before, such as tempo.
+
+**Prediction of the caret model**
+
+Let's compute the prediction of this model to see if this package performs better.
+
+```{r}
+set.seed(123)
+
+dtProb <- predict(caret.fit, dataTest, type = "prob")
+threshold = 0.54
+dtPred = rep(names[1], nrow(dataTest))
+dtPred[which(dtProb[,2] > threshold)] = names[2]
+CM = confusionMatrix(factor(dtPred), dataTest$popularityClass)$table
+confusionMatrix(factor(dtPred), dataTest$popularityClass)
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+This tree gives an accuracy of 0.724 and a cost of 139.16, which are slightly better than before.
+
+## Random Forest
+
+Random Forest is a technique that creates a high number of trees and combines them. Again, it needs some hyperparameters: the number of trees is kept in the ntree hyperparameter and the number of random variables that are chosen on each iteration is kept in the mtry variable.
+
+```{r}
+set.seed(123)
+
+rf.train <- randomForest(popularityClass ~., data=dataTrain, ntree=200,mtry=10,cutoff=c(0.75,0.25),importance=TRUE, do.trace=T)
+```
+
+**Prediction**
+
+```{r}
+rf.pred <- predict(rf.train, newdata=dataTest)
+confusionMatrix(rf.pred, dataTest$popularityClass)
+```
+
+The accuracy it gives is of 0.624, which is lower than the decision tree obtained before. However, choosing optimal hyperparameters can increase the accuracy.
+
+**Optimum Hyper parameters**
+
+We are going to compute again the random forest using now the caret library, so first we are to compute the optimal hyperparameters we talked about before, and compute the cost to see if it is smaller.
+
+```{r}
+set.seed(123)
+
+PopularityCost <- function(data, lev = NULL, model = NULL) 
+{
+  y.pred = data$pred 
+  y.true = data$obs
+  CM = confusionMatrix(y.pred, y.true)$table
+  out = sum(as.vector(CM)*cost.unit)/sum(CM)
+  names(out) <- c("EconomicCost")
+  out
+}
+
+ctrl <- trainControl(method = "cv", number = 5,
+                     classProbs = TRUE, 
+                     summaryFunction = PopularityCost,
+                     verboseIter=T)
+
+PopularityCost(data = data.frame(pred  = rf.pred, obs = dataTest$popularityClass))
+```
+
+The cost of this model is of 112.08, which is considerably smaller than the decision trees.
+Now, we compute again the random forest, but using this time the previously created function.
+
+```{r}
+set.seed(123)
+
+rf.train <- train(popularityClass ~., 
+                  method = "rf", 
+                  data = dataTrain,
+                  preProcess = c("center", "scale"),
+                  ntree = 200,
+                  cutoff=c(0.7,0.3),
+                  tuneGrid = expand.grid(mtry=c(6,8,10)), 
+                  metric = "PopularityCost",
+                  maximize = F,
+                  trControl = ctrl)
+```
+
+**Variable importance**
+
+```{r}
+rf_imp <- varImp(rf.train, scale = F)
+plot(rf_imp, scales = list(y = list(cex = .95)))
+```
+
+The results obtained in the plot are very similar to the other variable importance plot that has been obtained with the previous model. However, it seems that the difference between the date and the rest of the variables is a less pronounced.
+
+**Prediction**
+
+The prediction is going to be obtained in two ways, the first one takes into account the hyperparameters, and the other the threshold.
+
+```{r}
+rfPred = predict(rf.train, newdata=dataTest)
+CM = confusionMatrix(factor(rfPred), dataTest$popularityClass)$table
+confusionMatrix(factor(rfPred), dataTest$popularityClass)
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+Taking into account the hyperparameters, the accuracy is of 0.651 and the cost of 113.24.
+
+```{r}
+threshold = 0.54
+rfProb = predict(rf.train, newdata=dataTest, type="prob")
+rfPred = rep(names[1], nrow(dataTest))
+rfPred[which(rfProb[,2] > threshold)] = names[2]
+CM = confusionMatrix(factor(rfPred), dataTest$popularityClass)$table
+confusionMatrix(factor(rfPred), dataTest$popularityClass)
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+However, when taking into account the threshold, the cost increases considerably to 140.17 and the accuracy also increases to 0.727.
+
+These results suggest that the best random forest model is the one that uses the best hyperparameters with the caret library (as expected), and the prediction using the threshold is better.
+
+## Gradient Boosting
+
+Gradient Boosting is a technique that uses a combination of weak learners, in this case decision trees, to create a strong predictive model. The generation of the trees is made sequentially, in a way that the new tree solutes the errors the previous tree had. Also, the generated trees are not very deep, with normally no more than three levels.
+
+As the other two techniques, gradient boosting also has hyperparameters, in this case they are: n.trees, which is the number of trees created; shrinkage, which helps modifying the update rule; interaction.depth, which are the number of splits on each tree; and n.minobsinnode, which is the minimum number of observations in trees terminal nodes.
+
+**Training**
+
+Let's do a first approach with the information stated before.
+
+```{r}
+set.seed(123)
+
+GBM.train <- gbm(ifelse(dataTrain$popularityClass==names[1],0,1) ~., data=dataTrain, distribution= "bernoulli",n.trees=250,shrinkage = 0.01,interaction.depth=2,n.minobsinnode = 8)
+```
+
+**Prediction and cost**
+
+The cost and the accuracy of the model are obtained.
+
+```{r}
+threshold = 0.54
+gbmProb = predict(GBM.train, newdata=dataTest, n.trees=250, type="response")
+gbmPred = rep(names[1], nrow(dataTest))
+gbmPred[which(gbmProb > threshold)] = names[2]
+CM = confusionMatrix(factor(gbmPred), dataTest$popularityClass)$table
+confusionMatrix(factor(gbmPred), dataTest$popularityClass)
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+With the previous model, we have an accuracy of 0.72, and a cost of 143.54. These are not bad values but the value of the cost is one of the highest.
+
+**Caret**
+
+Now, we are going to compute another approach using the caret package.
+
+This model requires different hyperparameters that are kept at the grid, and used at the training.
+
+```{r}
+set.seed(123)
+
+xgb_grid = expand.grid(
+  nrounds = c(500,1000),
+  eta = c(0.01, 0.001), 
+  max_depth = c(2, 4, 6),
+  gamma = 1,
+  colsample_bytree = c(0.2, 0.4),
+  min_child_weight = c(1,5),
+  subsample = 1
+)
+```
+
+**Training**
+
+```{r}
+set.seed(123)
+
+xgb.train = train(popularityClass ~ .,  data=dataTrain,
+                  trControl = ctrl,
+                  metric="EconomicCost",
+                  maximize = F,
+                  tuneGrid = xgb_grid,
+                  preProcess = c("center", "scale"),
+                  method = "xgbTree"
+)
+```
+
+**Variable importance**
+
+```{r}
+xgb_imp <- varImp(xgb.train, scale = F)
+plot(xgb_imp, scales = list(y = list(cex = .95)))
+```
+
+These results are practically the same to the first variable importance plot created.
+
+**Prediction and cost**
+
+```{r}
+threshold = 0.54
+xgbProb = predict(xgb.train, newdata=dataTest, type="prob")
+xgbPred = rep(names[1], nrow(dataTest))
+xgbPred[which(xgbProb[,2] > threshold)] = names[2]
+CM = confusionMatrix(factor(xgbPred), dataTest$popularityClass)$table
+confusionMatrix(factor(xgbPred), dataTest$popularityClass)
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+The accuracy of this model is of 0.714, slightly worse than the other, and a cost of 149.15, which is higher than the other.
+For that reason, the other model should be used as it is better and less costly.
+
+## Subsampling Techniques
+
+Subsampling is a technique that instead of taking the whole dataset takes a sample of it. I have chosen the up-sampling, which randomly samples with replacement the minority class to be the same size as the majority class.
+
+```{r}
+set.seed(123)
+
+ctrl$sampling <- "up"
+
+rf.train <- train(popularityClass ~., 
+                  method = "rf", 
+                  data = dataTrain,
+                  preProcess = c("center", "scale"),
+                  ntree = 200,
+                  cutoff=c(0.7,0.3),
+                  tuneGrid = expand.grid(mtry=c(6,8,10)), 
+                  importance=TRUE,
+                  metric = "PopularityCost",
+                  maximize = F,
+                  trControl = ctrl)
+```
+
+**Prediction and cost**
+
+```{r}
+threshold = 0.54
+rfProb = predict(rf.train, newdata=dataTest, type="prob")
+rfPred = rep(names[1], nrow(dataTest))
+rfPred[which(rfProb[,2] > threshold)] = names[2]
+CM = confusionMatrix(factor(rfPred), dataTest$popularityClass)$table
+confusionMatrix(factor(rfPred), dataTest$popularityClass)
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost 
+```
+
+The accuracy gives as a result 0.7238, which is slightly better than the previous technique, but the cost is of 140.73, which is a little bit high.
+
+## Basic ensembles
+
+Ensemble combines the models that were obtained previously to create a new one.
+
+```{r}
+set.seed(123)
+
+mode <- function(v) {
+  uniqv <- unique(v)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+```
+
+**Prediction and cost**
+
+```{r}
+ensemble.pred = apply(data.frame(lrPred, xgbPred, rfPred), 1, mode) 
+CM = confusionMatrix(factor(ensemble.pred), dataTest$popularityClass)$table
+confusionMatrix(factor(ensemble.pred), dataTest$popularityClass)
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+The accuracy of this model is of 0.723, very similar to the previous one, and a cost of 141.46, a little bit bigger (although ensemble is a technique that is usually very costly).
+
+## Conclusion
+
+After converting our numerical variable into a categorical one, it has been shown that having well-balanced groups is important to have better results. Regarding the models, the got accuracies are around 0.7, that although could be better (our variables are not very correlated so it is normal) they are not bad values. 
+
+The best obtained model has been the random forest with the optimal hyperparameters as it gives the highest accuracy and also not a very high cost. On the other hand, the worst model was the gradient boosting, as it was very consuming compared to its accuracy. 
+
+# Model selection
+
+First, we load our dataset again and create the training and test sets.
+
+```{r}
+rm(list=ls())
+
+set.seed(123)
+
+data <- read.csv("spotify.csv", header=T, na.strings=c("","NA"), sep = "")
+
+data[1] <- NULL
+data[1] <- NULL
+data[4] <- NULL
+data[4] <- NULL
+
+data <- data[!duplicated(data), ]
+
+data$popularity = as.numeric(data$popularity)
+data$duration_ms = as.numeric(data$duration_ms)
+data$explicit = as.numeric(data$explicit)
+data$release_date = as.numeric(substr(data$release_date, 1, 4))
+data$key = as.numeric(data$key)
+data$mode = as.numeric(data$mode)
+data$time_signature = as.numeric(data$time_signature)
+
+outliers <- data
+
+for (i in c(1:16)){
+  value = outliers[,i][outliers[,i] %in% boxplot.stats(outliers[,i])$out]
+  outliers[,i][outliers[,i] %in% value] = NA}
+
+data <- na.omit(outliers)
+
+data[3] <- NULL
+data[15] <- NULL
+
+spl = createDataPartition(data$popularity, p = 0.8, list = FALSE)  
+
+dataTrain = data[spl,]
+dataTest = data[-spl,]
+```
+
+We create a first approach of the model by adding some variables, and then we are going to analyse it to see which ones we can erase.
+I decided not to add all the variables because when trying the combinations the process becomes very time consuming, so I added the ones
+that are the most correlated with the popularity, as they should give a higher R-squared.
+
+```{r}
+model <- popularity ~ energy + danceability + loudness + release_date + acousticness + instrumentalness + speechiness + duration_ms
+linFit <- lm(model, data=dataTrain)
+```
+
+**Analysis**
+
+Let's apply different techniques to create the best possible model.
+
+As a first approach, we apply this one where all the combinations are tried to see
+which one gives the highest R-squared. 
+
+```{r}
+ols_step_all_possible(linFit)
+```
+
+We can see that the highest R-squared corresponds to the last value, that is the combination
+of all the selected values, but as there are some values that are very similar, let's do further analysis.
+
+```{r}
+ols_step_best_subset(linFit)
+```
+
+The values of R-squared are very similar for models 6, 7 and 8 in this case, so we can see which is the best model 
+with the value of AIC (Akaike Information Criteria). If this value is smaller, it represents better our variable.
+In this case, the best model would be the seventh model, which takes out speechiness.
+
+To see the value we have just studied (AIC) better, we can compute the following analysis.
+
+```{r}
+ols_step_forward_aic(linFit)
+```
+
+This analysis gives us the values of the individual variables (how much they contribute to the model).
+We can see that the one that contributes the least is the date  and then the acousticness, as they 
+have lower values of R-squared and higher of AIC. On the contrary, the ones that contribute the most are
+the danceability and the instrumentalness of the song.
+
+We can do another analysis that will tell us if it would erase any variable.
+
+```{r}
+ols_step_backward_aic(linFit)
+```
+
+Based on this, this model would erase the speechiness as one of the least representative.
+
+Finally, we can join both AIC analysis in the following command.
+
+```{r}
+ols_step_both_aic(linFit)
+```
+
+This gives as a result the same conclusions that were drowned from the previous two analysis. Also, the speechiness variable does not appear.
+
+As a final conclusion to the analysis, I believe that every command gave as a result that
+the best model is the one that was introduced in the beginning without the speechiness variable
+as this model gives the best results in all the different methods.
+
+```{r}
+linFit <- lm(popularity ~ energy + danceability + loudness + release_date + acousticness + instrumentalness + duration_ms, data = dataTrain)
+summary(linFit)
+```
+
+The final R-Squared this model gives is 0.303, which is not very high. This makes sense because the variables 
+of our dataset, as we saw at the beginning, are not very correlated what produces this low values.
+
+## Prediction
+
+```{r}
+predictions <- exp(predict(linFit, newdata=dataTest))
+cor(dataTest$popularity, predictions)^2
+```
+
+As I said before, the value of the prediction is very low because of the low correlations the variables have among each other.
+
+```{r}
+RMSE <- sqrt(mean((predictions - dataTest$popularity)^2))
+RMSE
+```
+
+RMSE stands for (Root Mean Square Error), as it is a very high value, it suggests that the points are very disperse.
+
+## Benchmark
+
+```{r}
+set.seed(123)
+
+benchFit <- lm(popularity ~ 1, data=dataTrain)
+benchFit$coefficients
+
+predictions <- predict(benchFit, newdata=dataTest)
+RMSE <- sqrt(mean((predictions - dataTest$popularity)^2))
+RMSE
+```
+
+After creating the benchmark model and trying it with the Test set, we can see that it performs way
+much better than the other one, with a Root Mean Square Error (RMSE) of only 17.13.
+
+# Statistical Learning tools
+
+## Linear Regression
+
+**Train**
+
+Regression is a common tool used in supervised learning, as it takes some variables and study which ones are significant predictors of the outcome variable, which is the subject of study. The simplest form of regression is linear, as it represents the data in the form of a lines with a formula  y = a + b*x. 
+
+We are going to train a linear regression model using the variables we obtained before. 
+
+```{r}
+set.seed(123)
+
+model <- popularity ~ energy + danceability + loudness + release_date + acousticness + instrumentalness + duration_ms
+
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 5, repeats = 1)
+
+lm_tune <- train(model, data = dataTrain, 
+                 method = "lm", 
+                 preProc=c('scale', 'center'),
+                 trControl = ctrl)
+lm_tune
+```
+
+With the training set, it gives a R-Squared of 0.302, and a RMSE of 14.39.
+
+**Predict**
+
+Now, we are going to make the prediction with the test set.
+
+```{r}
+set.seed(123)
+
+test_results <- data.frame(popularity = dataTest$popularity)
+
+test_results$lm <- predict(lm_tune, dataTest)
+
+postResample(pred = test_results$lm,  obs = test_results$popularity)
+```
+
+It predicts a R-Squared of 0.315 and an error of 14.17. These results are very low and not accurate. 
+
+**Visualization**
+
+We are going to compute graphically the results.
+
+```{r}
+qplot(test_results$lm, test_results$popularity) + 
+  labs(title="Linear Regression Observed VS Predicted", x="Predicted", y="Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  theme_bw()
+```
+
+We can see that there are a lot of values because of the huge amount of data, but it can be seen that the model follows a linear model, although there is a huge bias.
+
+## Overfitted linear regression
+
+Overfitting is usually used when the model is too complex, usually when there are a large number of parameters compared to the number of observations. 
+
+Let's make a model with overfitted regression and see if it behaves better than linear regression.
+
+**Train**
+
+```{r}
+set.seed(123)
+
+alm_tune <- train(model, data = dataTrain, 
+                  method = "lm", 
+                  preProc=c('scale', 'center'),
+                  trControl = ctrl)
+```
+
+**Predict**
+
+```{r}
+set.seed(123)
+
+test_results$alm <- predict(alm_tune, dataTest)
+postResample(pred = test_results$alm,  obs = test_results$popularity)
+```
+
+This gives as a result a R-squared of 0.315 almost identical to non-overfitted linar regression. 
+
+```{r}
+set.seed(123)
+
+qplot(test_results$alm, test_results$popularity) + 
+  labs(title="Linear Regression Observed VS Predicted", x="Predicted", y="Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  theme_bw()
+```
+
+The graph is also very similar and has a huge amount of bias.
+
+## Ridge Regression
+
+We are going to compute the Ridge Regression with the caret package.
+
+**Train and plot the model**
+
+Our main objective at the ridge regression is to find the best value for lambda, 
+and we are going to do that by obtaining the model and plotting the results.
+
+```{r}
+set.seed(123)
+
+ridge_grid <- expand.grid(lambda = seq(0, .1, length = 100))
+
+ridge_tune <- train(model, data = dataTrain,
+                    method='ridge',
+                    preProc=c('scale','center'),
+                    tuneGrid = ridge_grid,
+                    trControl=ctrl)
+plot(ridge_tune)
+```
+
+**Best value for lambda**
+
+When searching the best value for lambda, we search for the least value as we control with it the penalty term, so the higher it is, the bigger is the penalty and the magnitude of the coefficients is reduced.
+
+```{r}
+set.seed(123)
+
+ridge_tune$bestTune
+```
+
+In this case it is 0.001.
+
+**Prediction**
+
+```{r}
+set.seed(123)
+
+test_results$ridge <- predict(ridge_tune, dataTest)
+
+postResample(pred = test_results$ridge,  obs = test_results$popularity)
+```
+
+This model gives a R_squared of 0,315 and a RMSE of 14.17. It is a bit higher but still very low.
+
+## Lasso
+
+Lasso regression stands for Least Absolute Shrinkage and Selection Operator, what means 
+that it is based on shrinkage, what means that the data values are centered to a point.
+
+In this model, we also predict the best value for lambda.
+
+**Train and plot the model**
+
+```{r}
+set.seed(123)
+
+lasso_grid <- expand.grid(fraction = seq(.01, 1, length = 100))
+
+lasso_tune <- train(model, data = dataTrain,
+                    method='lasso',
+                    preProc=c('scale','center'),
+                    tuneGrid = lasso_grid,
+                    trControl=ctrl)
+
+plot(lasso_tune)
+```
+
+**Best value for lambda**
+
+Again, a lower value for lambda indicates that parameters are not eliminated, but
+as it increases, bias and variance increase too.
+
+```{r}
+set.seed(123)
+
+lasso_tune$bestTune
+```
+
+The best value for lambda is 1.
+
+**Prediction**
+
+```{r}
+set.seed(123)
+
+test_results$lasso <- predict(lasso_tune, dataTest)
+postResample(pred = test_results$lasso,  obs = test_results$popularity)
+```
+
+The predictions are very similar to the last method, with a RMSE of 14.17 and a
+R-Squared of 0.315.
+
+## Elastic Net
+
+Elastic Net combines the Lasso and ridge techniques. IT combines both regressions to learn from their shortcomings to improve the models and overcome the limitations they present. It uses both alpha and lambda in the grid as we have to get the best value of these parameters. 
+
+**Train and plot the model**
+
+```{r}
+set.seed(123)
+
+elastic_grid = expand.grid(alpha = seq(0, .2, 0.01), lambda = seq(0, .1, 0.01))
+
+glmnet_tune <- train(model, data = dataTrain,
+                     method='glmnet',
+                     preProc=c('scale','center'),
+                     tuneGrid = elastic_grid,
+                     trControl=ctrl)
+
+plot(glmnet_tune)
+```
+
+**Best values**
+
+```{r}
+set.seed(123)
+
+glmnet_tune$bestTune
+```
+
+This technique predicts that the best values are 0.06 for alpha, and 0.09 for lambda.
+
+**Prediction**
+
+```{r}
+set.seed(123)
+
+test_results$glmnet <- predict(glmnet_tune, dataTest)
+
+postResample(pred = test_results$glmnet,  obs = test_results$popularity)
+```
+
+The R-Squared is of 0.315, which is a very low value. Also, the error is of 14.17.
+
+# Machine learning tools
+
+As we did on the classification approach, we are also going to apply machine learning methods that predict now the value of our numerical variable.
+
+## kNN
+
+kNN (k nearest neighbors) is a method based on the idea that the values that are the closest to the data are more similar, so new values can be predicted using the closest existing ones. We choose the number of nearby observation with the k value. In our grid, it is defined at the kmax parameter.
+
+**Training**
+
+```{r}
+set.seed(123)
+
+knn_tune <- train(model, 
+                  data = dataTrain,
+                  method = "kknn",   
+                  preProc=c('scale','center'),
+                  tuneGrid = data.frame(kmax=c(11,13,15,19,21),distance=2,kernel='optimal'),
+                  trControl = ctrl)
+plot(knn_tune)
+```
+
+With this plot, we can see how the error changes when the value of k is altered. As it could be expected, the error decreases when the number of neighbors increases, as the precision is higher with more observations.  
+
+**Predict**
+
+```{r}
+set.seed(123)
+
+test_results$knn <- predict(knn_tune, dataTest)
+
+postResample(pred = test_results$knn,  obs = test_results$popularity)
+```
+
+The results of this model give an R-Squared of 0.315, and an error (RMSE) of 14.2, what means that this model is not very accurate and there may be other better.
+
+## Random Forests
+
+As explained before, random forest is a combination of decision trees. In this case, we use 100 trees and the mtry (number of random variables) hyperparameter.
+
+```{r}
+set.seed(123)
+
+rf_tune <- train(model, 
+                 data = dataTrain,
+                 method = "rf",
+                 preProc=c('scale','center'),
+                 trControl = ctrl,
+                 ntree = 100,
+                 tuneGrid = data.frame(mtry=c(1,3,5,7)),
+                 importance = TRUE)
+
+plot
+
+(rf_tune)
+```
+
+**Predict**
+
+```{r}
+test_results$rf <- predict(rf_tune, dataTest)
+
+postResample(pred = test_results$rf,  obs = test_results$popularity)
+```
+
+This model gives an R-Squared of 0.369 and an error of 13.6, which are better values than the kNN, although these values are not good enough.
+
+## Gradient Boosting
+
+As explained at the gradient boosting computed before, it is a combination of weak learners (decision trees). 
+
+```{r}
+set.seed(123)
+
+xgb_tune <- train(model, 
+                  data = dataTrain,
+                  method = "xgbTree",
+                  preProc=c('scale','center'),
+                  objective="reg:squarederror",
+                  trControl = ctrl,
+                  tuneGrid = expand.grid(nrounds = c(500,1000), max_depth = c(5,6,7), eta = c(0.01, 0.1, 1),
+                                         gamma = c(1, 2, 3), colsample_bytree = c(1, 2),
+                                         min_child_weight = c(1), subsample = c(0.2,0.5,0.8)))
+```
+
+**Predict**
+
+```{r}
+test_results$xgb <- predict(xgb_tune, dataTest)
+
+postResample(pred = test_results$xgb,  obs = test_results$popularity)
+```
+
+This gives an R-Squared of 0.381, which is similar to the other results. Regarding error, it has a value of 13.47.
+
+## Ensemble
+
+As before, ensemble is going to combine the previously obtained results to create a new one.
+
+```{r}
+set.seed(123)
+
+apply(test_results[-1], 2, function(x) mean(abs(x - test_results$popularity)))
+```
+
+**Prediction**
+
+```{r}
+test_results$comb = (test_results$alm + test_results$knn + test_results$rf)/3
+
+postResample(pred = test_results$comb,  obs = test_results$popularity)
+```
+
+Ensemble values give a value of 0.361 at the R-Squared and 13.7 at the error.
+
+## Conclusions 
+
+Although I got that the best model is a combination of all the variables I tried, I could not get an R-Squared higher than 0.33, what means that my variables do not represent my popularity value well-enough, so the predictions of it are not very precise.
+
+Regardless of that, if I had to choose one of the models, taking into account the values of the R-Squared and the error, I would select the gradient boosting that has an R-Squared of 0.381, being the highest among all, and the error that it has is the lowest one. However, the model would still not be able to predict correctly our study variable.
+
+# Overall conclusions
+
+After training both models for predicting categorical and numerical variables, I have come to the conclusion that predicting a categorical one is easier, what is logical as it has less values so it is more precise. Also, it is important to have balanced classes as it provides better results and it is also crucial to select a good range of variables that can predict your variable although sometimes, if bad values are obtained, it concludes that the variables of your dataset cannot explain correctly your subject of study. Taking this into account, it is also important the correlations between the variables, as if many variables are very correlated, they represent the same and they are redundant so some can be erased without losing information.
+
+Another important point is to select the best model, as there are many techniques and each concrete case can have a different optimal one. To choose it, first the best values for the hyperparameters should be obtained so that the model is the best possible. Once the models are obtained, both the accuracies or R-Squared must be checked, but also the cost. This is important because a very consuming method is not preferable, so the best combination of both characteristics should be chosen. 
+
+Regarding the conclusions of this Spotify tracks dataset, I have discovered the importance of the year the song was created at, as more recent songs have a way bigger popularity than older ones. Also, it is the most correlated variable with the popularity, and the most important one taking into account the variable importance plot. Regardless of that, other important variables have to do with the configurations of the song in the sense of the volume and the electronic instruments they use. This makes me think that, as Spotify is mainly used among young users, loud songs that include electronic instruments are popular because of them. This idea is reinforced by the fact that the energy and danceability of the songs is also a crucial factor. On the contrary, variables such as the mode and key do not seem that important, which are related to the 'musical' part of the song, as they are the notes and modalities (major and manor) of the tracks.
+
+# Bibliography
+
+I have based my work on the notebooks present at Aula Global and I have searched for imformation regarding Spotify's parameters at its API documentation.
